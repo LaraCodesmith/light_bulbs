@@ -1,0 +1,460 @@
+---
+title: ""
+author: ""
+date: ""
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Wczytywanie danych
+
+```{r}
+bulbsdata <- read.csv("bulbs.csv", sep = ";")
+```
+
+Sprawdzamy, ile jest wierszy i jakie są kolumny w podanym zbiorze danych:
+
+```{r}
+print(str(bulbsdata))
+```
+
+W zbiorze danych znajduje się **401** wiersz i **5** kolumn.\
+Przyjrzyjmy główne statystyki każdej kolumny:
+
+```{r}
+print(summary(bulbsdata))
+```
+
+Kolumna `time_in_hours` ewidentnie ma wartość brakującą (NA) oraz prawdopodobnie wartość odstającą (zbyt wysoka maksymalna wartość w porównywaniu do średniej). Sprawdzamy, ile wartości brakuje w zbiorze danych:
+
+```{r}
+colSums(is.na(bulbsdata))
+```
+
+### Przygotowanie danych dla analizy
+
+Na podstawie uzyskanej informacji dane w zbiorze trzeba przerobić.\
+Najpierw wyciągniemy ze zbioru danych cenę jednego opakowania sprayu:
+
+```{r}
+spray_price_PLN <- as.numeric(bulbsdata[401, 2])
+print(spray_price_PLN)
+```
+
+Usuniemy ze zbioru niepotrzebne, brakujące i podejrzane dane:
+
+-   `5-a kolumna` ma sporo brakujących danych i jest zbędna dla celów naszej analizy;
+
+-   `401-y wiersz` zawiera cenę sprayu, którą już przechowaliśmy w zmiennej, i przeszkadza analizowaniu danych o żarówkach;
+
+-   `263-i wiersz` zawiera ewidentnie niewiarygodne dane o czasie działania żarówki (wartość odstającą), które wpływają na średnią kolumny `time_in_hours`, co może wywołać błędne wnioski oraz przeszkodzić wizualizacji danych na wykresach.
+
+```{r}
+bulbsdata <- bulbsdata[c(-401, -263), -5]
+```
+
+## Rozwiązania szczegółowych postawionych pytań
+
+### Czy rzeczywiście żarówki o podwójnej bańce mają dłuższy średni czas życia niż żarówki o pojedynczej bańce?
+
+Najpierw przeliczymy czas działania żarówek w latach (przy założeniu, że działały 4 godz. dziennie) i dodamy tę informację do zbioru danych:
+
+```{r}
+bulbsdata$bulb_life_in_years <- (bulbsdata$time_in_hours / 4) / 365
+print(head(bulbsdata))
+```
+
+Przeglądając zbiór danych, można zobaczyć, że mamy 4 opcji żarówek: zwykłe i podwójne żarówki, opryskane sprayem lub nie.\
+Dla wygody dalszych obliczeń i analizy dodamy do zbioru danych jeszcze jedną kolumnę, jednoczącą dane o typu żarówek i ich opryskiwaniu sprayem, oraz skrócimy w kolumnach nazwę sprayu:
+
+```{r}
+bulbsdata$type_sprayed <- paste(bulbsdata$product_type, bulbsdata$sprayed, sep = "_")
+bulbsdata$type_sprayed <- gsub("regular bulb", "RegularBulb", bulbsdata$type_sprayed)
+bulbsdata$type_sprayed <- gsub("CoatItYourself", "coated", bulbsdata$type_sprayed)
+bulbsdata$sprayed <- gsub("CoatItYourself", "coated", bulbsdata$sprayed)
+```
+
+Dla rozwiązania pierwszej kwestii przygotujemy dane o czasu działania żarówek dla przedstawienia na wykresie, zebrawszy ich do listy:
+
+```{r}
+bulbsdata$type_sprayed <- as.factor(bulbsdata$type_sprayed)
+bulb_types_list <- lapply(levels(bulbsdata$type_sprayed), function(x) {
+  bulbsdata[ bulbsdata[, "type_sprayed"] == x, "bulb_life_in_years"]
+})
+names(bulb_types_list) <- levels(bulbsdata$type_sprayed)
+lapply(bulb_types_list, head)
+```
+
+Tworzymy wykres pudełkowy danych o czasie działania żarówek w zależności od typu żarówki:
+
+```{r}
+boxplot(bulb_types_list,
+        names = c("Double bulb, COATED w. spray",
+                  "Double bulb, NOT coated",
+                  "Regular bulb, COATED w. spray",
+                  "Regular bulb, NOT coated"),
+        cex.axis = 0.6,
+        col = palette.colors(palette = "Pastel 2")[1:4],
+        main = "Zależność czasu użycia żarówki od jej typa i użycia sprayu",
+        ylab = "Czas użycia żarówki [lat]",
+        xlab = "Typ żarówki")
+
+#Narysujemy na wykresie punkty, oznaczające wartości średnich, oraz poziome linie przez nich
+for (i in 1:4) {
+  points(i, mean(bulb_types_list[[i]]), col = "red", pch = 15)
+}
+
+for (i in 1:4) {
+  lines(c(0.5, 4.5), c(mean(bulb_types_list[[i]]), mean(bulb_types_list[[i]])),
+        col = palette.colors(palette = "Classic Tableau")[1:4][[i]],
+        lty = "longdash",
+        lwd = 2)
+}
+
+#Dodajemy legendę
+legend("topright",
+       legend = c("średnia dla DoubleBulb ze sprayem",
+                  "średnia dla DoubleBulb bez sprayu",
+                  "średnia dla RegularBulb ze sprayem",
+                  "średnia dla RegularBulb bez sprayu"),
+       lty = "longdash",
+       pch = 15,
+       fill = palette.colors(palette = "Classic Tableau")[1:4],
+       cex = 0.5,
+       bty = "n")
+
+#Dodatkowe zmienne pomocnicze
+mean_double_coated <- mean(bulb_types_list$DoubleBulb_coated)
+mean_double_none <- mean(bulb_types_list$DoubleBulb_none)
+mean_regular_coated <- mean(bulb_types_list$RegularBulb_coated)
+mean_regular_none <- mean(bulb_types_list$RegularBulb_none)
+
+#Podpisujemy linie
+text(4.2, mean_double_coated + 0.2,
+     paste("mean_double_coated =",
+           round(mean_double_coated,
+                 digits = 2)),
+     cex = 0.5)
+text(4.2, mean_double_none - 0.2,
+     paste("mean_double_none =",
+           round(mean_double_none,
+                 digits = 2)),
+     cex = 0.5) 
+text(0.8, mean_regular_coated + 0.2,
+     paste("mean_regular_coated =",
+           round(mean_regular_coated,
+                 digits = 2)),
+     cex = 0.5) 
+text(0.8, mean_regular_none - 0.2,
+     paste("mean_regular_none =",
+           round(mean_regular_none,
+                 digits = 2)),
+     cex = 0.5) 
+```
+
+Wizualnie z wykresu wynika, że żarówki o podwójnej bańce (Double bulb) mają raczej dłuższy średni czas życia niż żarówki o pojedynczej bańce (Regular bulb), niezależnie od tego, czy spray był używany.\
+Dla pewności przetestujemy to z pomocą testu statystycznego. Sprawdzimy normalność rozkładów zmiennych na podstawie wykresów kwantyl-kwantyl (im lepiej punkty na wykresie QQ pasują do linii teoretycznej, tym rozkład jest bardziej zbliżony do normalnego):
+
+```{r fig1, out.width = '50%'}
+for (q1 in c("RegularBulb_none", "RegularBulb_coated", "DoubleBulb_none", "DoubleBulb_coated")) {
+  qqnorm(bulb_types_list[[q1]], xlab = q1, cex.lab = 0.8)
+  qqline(bulb_types_list[[q1]], col = 2, lwd = 2)
+}
+  
+```
+
+Zmienne prawdopodobnie mają rozkład normalny. Możemy użyć testu t-Studenta, przecież będziemy porównywać między sobą 2 grupy żarówek pod względem czasu ich działania. Formułujemy hipotezy:
+
+-   *hipoteza zerowa:* średnie Double bulb i Regular bulb (m.in. przy użyciu sprayu) są równe (tzn. że podwójność banki ma brak wpływu na czas działania i nie ma różnicy od żarówki o pojedynczej bańce) lub średnia Double bulb jest mniejsza od średniej Regular bulb (tzn. że podwójność bańki redukuje czas działania żarówki);
+
+-   *hipoteza alternatywna:* średnia Double bulb jest większa niż średnia Regular bulb (tzn. że podwójność banki wydłuża czas działania żarówki).\
+    Przetestujemy najpierw żarówki o podwójnej bańce, nie opryskiwane sprayem:
+
+```{r}
+alpha <- 0.05 #przyjmujemy taki poziom istotności
+
+for (comparison_sample1 in c("RegularBulb_coated", "RegularBulb_none")) {
+  longevity_test1 <- t.test(bulb_types_list$DoubleBulb_none,
+                           bulb_types_list[[comparison_sample1]],
+                           alternative = "greater")
+  print(paste("Uzyskano p-wartość:", longevity_test1$p.value))
+  if (longevity_test1$p.value <= alpha) {
+    print(paste("Czas użycia niesprayowanej Double bulb jest większy niż", comparison_sample1))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej dla testu z", comparison_sample1))
+  }
+}
+```
+
+Następnie przetestujemy żarówki o podwójnej bańce, opryskiwane sprayem:
+
+```{r}
+for (comparison_sample2 in c("RegularBulb_coated", "RegularBulb_none")) {
+  longevity_test2 <- t.test(bulb_types_list$DoubleBulb_coated,
+                           bulb_types_list[[comparison_sample2]],
+                           alternative = "greater")
+  print(paste("Uzyskano p-wartość:", longevity_test2$p.value))
+  if (longevity_test2$p.value <= alpha) {
+    print(paste("Czas użycia sprayowanej Double bulb jest większy niż", comparison_sample2))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej dla testu z", comparison_sample2))
+  }
+}
+```
+
+Z testu wynika, że żarówki o podwójnej bańce rzeczywiście mają dłuższy średni czas życia niż żarówki o pojedynczej bańce. Użycie sprayu nie wpływa na te wyniki.
+
+### Czy rzeczywiście spray przedłuża średni czas życia żarówki? Obu typów?
+
+Biorąc pod uwagę poprzedni wniosek, sprawdzimy czy spray w ogóle wpływa na czas życia żarówek takiego samego typu.\
+Z wykresu powyżej wycieka, że wpływ sprayu na czas działania żarówek istnieje (czas działania się zwiększa), ale niejasne czy jest istotny.\
+Zobaczymy to też i na liczbach. Uogólnimy, ile lat średnio działają żarówki każdego typu:
+
+```{r}
+average_life_means <- aggregate(bulb_life_in_years ~ product_type + sprayed, data = bulbsdata, mean)
+print(average_life_means)
+```
+
+Ale zwrócimy się znowu do testu statystycznego. Zacznijmy od żarówek o podwójnej bańce. Formułujemy hipotezy:
+
+-   *hipoteza zerowa:* średnie Double bulb przy użyciu sprayu i bez niego są równe (tzn. że spray nie wpływa na czas działania żarówki Double bulb) lub średnia Double bulb przy użyciu sprayu jest mniejsza niż bez niego (tzn. spray redukuje czas działania żarówki Double bulb);
+
+-   *hipoteza alternatywna:* średnia Double bulb pokrytej sprayem jest większa niż średnia Double bulb, na której sprayu nie używano (tzn. że użycie sprayu wydłuża czas działania żarówki Double bulb).\
+    Przetestujemy najpierw żarówki o podwójnej bańce, nie opryskiwane sprayem:
+
+```{r}
+spray_test_double <- t.test(bulb_types_list$DoubleBulb_coated,
+                            bulb_types_list$DoubleBulb_none,
+                            alternative = "greater")
+  print(paste("Uzyskano p-wartość:", spray_test_double$p.value))
+
+#poziom istotności jest poprzedni
+  if (spray_test_double$p.value <= alpha) {
+    print(paste("Spray zwiększa czas działania żarówki o podwójnej bańce"))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej"))
+  }
+```
+
+Formułujemy podobne hipotezy dla zwykłych żarówek i testujemy ich:
+
+-   *hipoteza zerowa:* średnie Regular bulb przy użyciu sprayu i bez niego są równe (tzn. że spray nie wpływa na czas działania żarówki Regular bulb) lub średnia Regular bulb przy użyciu sprayu jest mniejsza niż bez niego (tzn. spray redukuje czas działania żarówki Regular bulb);
+
+-   *hipoteza alternatywna:* średnia Regular bulb pokrytej sprayem jest większa niż średnia Regular bulb, na której sprayu nie używano (tzn. że użycie sprayu wydłuża czas działania żarówki Regular bulb).
+
+```{r}
+spray_test_regular <- t.test(bulb_types_list$RegularBulb_coated,
+                             bulb_types_list$RegularBulb_none,
+                             alternative = "greater")
+  print(paste("Uzyskano p-wartość:", spray_test_regular$p.value))
+
+#poziom istotności poprzedni
+  if (spray_test_regular$p.value <= alpha) {
+    print(paste("Spray zwiększa czas działania zwykłej żarówki o pojedyncze bańce"))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej"))
+  }
+```
+
+Jak wynika z testów, spray raczej nie wydłuży czas działania żarówki o podwójnej bańce, lecz spray wydłuża działanie zwykłej żarówki. Więc dla celu wydłużenia czasu działania zwykłej żarówki korzystanie ze sprayu raczej ma sens.
+
+### Czy używanie którejś z tych alternatyw do zwykłych żarówek o pojedynczej bańce ma sens ekonomiczny?
+
+A teraz zastanówmy się, czy można korzystać z żarówek o podwójnej bańce oraz sprayu i zyskiwać na tym w porównaniu z użyciem zwykłych żarówek, nie pokrytych sprayem. Obliczymy cenę jednej godziny użytkowania żarówek, nie pokrytych sprayem, i dodamy uzyskane dane do zbioru danych:
+
+$$ cena\text{ }za\text{ }godzinę\text{ }użycia\text{ }bez\text{ }sprayu = \frac{cena\text{ }za\text{ }żarówkę}{czas\text{ }użycia\text{ }żarówki} $$
+
+```{r}
+bulbsdata$price_per_hour_PLN <- bulbsdata$price_in_PLN / bulbsdata$time_in_hours
+print(head(bulbsdata$price_per_hour_PLN[bulbsdata$sprayed == "none"]))
+```
+
+Przy obliczaniu ceny jednej godziny użytkowania żarówek sprayowanych doliczymy cenę jednego psiku preparatem (żarówki należy psikać co godzinę) i dodamy te dane do zbioru danych:
+
+$$ cena\text{ }za\text{ }psik = \frac{cena\text{ }za\text{ }spray}{ogólna\text{ }ilość\text{ }psików} $$
+
+```{r}
+price_per_spraypuff_PLN <- spray_price_PLN / round(sum(bulbsdata$time_in_hours[bulbsdata$sprayed == "coated"]), digits = 0)
+print(price_per_spraypuff_PLN)
+```
+
+$$ cena\text{ }za\text{ }godzinę\text{ }użycia\text{ }ze\text{ }sprayem = \frac{cena\text{ }za\text{ }żarówkę\text{ }+\text{ }cena\text{ }za\text{ }psik\text{ }*\text{ }ilość\text{ }psików}{czas\text{ }użycia\text{ }żarówki} $$
+
+```{r}
+bulbsdata$price_per_hour_PLN[bulbsdata$sprayed == "coated"] <- (bulbsdata$price_in_PLN[bulbsdata$sprayed == "coated"] + price_per_spraypuff_PLN * bulbsdata$time_in_hours[bulbsdata$sprayed == "coated"]) / bulbsdata$time_in_hours[bulbsdata$sprayed == "coated"]
+print(head(bulbsdata$price_per_hour_PLN[bulbsdata$sprayed == "coated"]))
+```
+
+Dane o cenach godziny użycia żarówek wyciągniemy do listy:
+
+```{r}
+bulb_prices_list <- lapply(levels(bulbsdata$type_sprayed), function(x) {
+  bulbsdata[ bulbsdata[, "type_sprayed"] == x, "price_per_hour_PLN"]
+})
+names(bulb_prices_list) <- levels(bulbsdata$type_sprayed)
+lapply(bulb_prices_list, head)
+```
+
+Obejrzymy wykres zależności cen żarówek od ich typu i porównamy ze sobą średnią cenę jednej godziny użytkowania żarówek każdego typu:
+
+```{r message=FALSE, warning=FALSE}
+library(vioplot)
+
+vioplot(bulb_prices_list,
+        names = c("Double bulb, COATED w. spray",
+                  "Double bulb, NOT coated",
+                  "Regular bulb, COATED w. spray",
+                  "Regular bulb, NOT coated"),
+        cex.axis = 0.5,
+        col = palette.colors(palette = "Pastel 1")[1:4],
+        main = "Zależność ceny godziny użycia żarówki od jej typa i użycia sprayu",
+        cex.main = 0.9,
+        ylab = "Cena godziny użycia żarówki [zł]",
+        xlab = "Typ żarówki")
+
+#Narysujemy na wykresie punkty, oznaczające wartości średnich, oraz poziome linie przez nich
+for (i in 1:4) {
+  points(i, mean(bulb_prices_list[[i]]), col = "red", pch = 15)
+}
+
+for (i in 1:4) {
+  lines(c(0.5, 4.5), c(mean(bulb_prices_list[[i]]), mean(bulb_prices_list[[i]])),
+        col = palette.colors(palette = "Dark 2")[1:4][[i]],
+        lty = "longdash",
+        lwd = 2)
+}
+
+#Dodajemy legendę
+legend("topright",
+       legend = c("średnia dla DoubleBulb ze sprayem",
+                  "średnia dla DoubleBulb bez sprayu",
+                  "średnia dla RegularBulb ze sprayem",
+                  "średnia dla RegularBulb bez sprayu"),
+       lty = "longdash",
+       pch = 15,
+       fill = palette.colors(palette = "Dark 2")[1:4],
+       cex = 0.6,
+       bty = "n")
+
+#Dodatkowe zmienne pomocnicze
+mean_price_double_coated <- mean(bulb_prices_list$DoubleBulb_coated)
+mean_price_double_none <- mean(bulb_prices_list$DoubleBulb_none)
+mean_price_regular_coated <- mean(bulb_prices_list$RegularBulb_coated)
+mean_price_regular_none <- mean(bulb_prices_list$RegularBulb_none)
+
+#Podpisujemy linie
+text(4, mean_price_double_coated + 0.0005,
+     paste("mean_price_double_coated =",
+           round(mean_price_double_coated,
+                 digits = 4)),
+     cex = 0.5)
+text(4, mean_price_double_none - 0.0005,
+     paste("mean_price_double_none =",
+           round(mean_price_double_none,
+                 digits = 4)),
+     cex = 0.5) 
+text(1, mean_price_regular_coated + 0.0005,
+     paste("mean_price_regular_coated =",
+           round(mean_price_regular_coated,
+                 digits = 4)),
+     cex = 0.5) 
+text(1, mean_price_regular_none - 0.0005,
+     paste("mean_price_regular_none =",
+           round(mean_price_regular_none,
+                 digits = 4)),
+     cex = 0.5) 
+```
+
+Na wykresie widać, że średnia cena godziny użytkowania żarówek Double bulb ze sprayem jest odrobinę większa niż bez niego. Lecz dla żarówek Regular bulb sytuacja jest odwrotna: cena godziny działania żarówki takiego typu ze sprayem jest mniejsza niż bez go użycia.\
+Używanie żarówek Double bulb w każdym razie jest znacznie droższe niż zwykłych żarówek, nie pokrywanych sprayem.\
+Sprawdzimy poprzednie wnioski z pomocą testu statystycznego. Sprawdzimy normalność rozkładów zmiennych na podstawie wykresów kwantyl-kwantyl (im lepiej punkty na wykresie QQ pasują do linii teoretycznej, tym rozkład jest bardziej zbliżony do normalnego):
+
+```{r fig2, out.width = '50%'}
+for (q2 in c("RegularBulb_none", "RegularBulb_coated", "DoubleBulb_none", "DoubleBulb_coated")) {
+  qqnorm(bulb_prices_list[[q2]], xlab = q2, cex.lab = 0.8)
+  qqline(bulb_prices_list[[q2]], col = 2, lwd = 2)
+}
+```
+
+Rozkłady niektórych zmiennych raczej nie są normalne. Więc użyjemy testu U Manna-Withneya (nie zakłada m.in. normalności). Formułujemy hipotezy:
+
+-   *hipoteza zerowa:* średnie cen godziny użytkowania zwykłych żarówek bez sprayu i pozostałych typów są równe lub średnia cena godziny użytkowania zwykłych żarówek jest mniejsza od pozostałych typów (wtedy nie ma ekonomicznego sensu używać innych typów żarówek);
+
+-   *hipoteza alternatywna:* średnia cen godziny użytkowania zwykłych żarówek, nie sprayowanych, jest większa od średnich pozostałych typów (tzn. użycie alternatyw ma sens ekonomiczny).
+
+```{r}
+for (comparison_sample3 in c("DoubleBulb_coated", "DoubleBulb_none", "RegularBulb_coated")) {
+  econ_test <- wilcox.test(bulb_prices_list$RegularBulb_none,
+                           bulb_prices_list[[comparison_sample3]],
+                           alternative = "greater")
+  print(paste("Uzyskano p-wartość:", econ_test$p.value))
+
+#poziom istotności ten sam
+  if (econ_test$p.value <= alpha) {
+    print(paste("Użycie", comparison_sample3, "ma sens ekonomiczny"))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej dla testu z", comparison_sample3))
+  }
+}
+```
+
+Przy sprayowaniu zwykłych żarówek można zyskiwać. Pozostałe opcje nie mają sensu ekonomicznego.\
+Oraz sprawdźmy, czy ma sens ekonomiczny sprayowanie żarówek o podwójnej bańce. Formułujemy hipotezy:
+
+-   *hipoteza zerowa:* średnie cen godziny użytkowania żarówek Double bulb bez sprayu i z nim są równe lub średnia cena godziny użytkowania niesprayowanych żarówek Double bulb jest mniejsza (tzn. nie ma sensu ekonomicznego sprayować żarówki o podwójnej bańce);
+
+-   *hipoteza alternatywna:* średnia cen godziny użytkowania nie sprayowanych żarówek Double bulb jest większa od średniej cen godziny użytkowania sprayowanych (tzn. jest sens ekonomiczny sprayować żarówki o podwójnej bańce).
+
+```{r}
+choose_double_test <- wilcox.test(bulb_prices_list$DoubleBulb_coated,
+                             bulb_prices_list$DoubleBulb_none,
+                             alternative = "greater")
+  print(paste("Uzyskano p-wartość:", choose_double_test$p.value))
+
+#poziom istotności ten sam
+  if (choose_double_test$p.value <= alpha) {
+    print(paste("Sprayowanie Double bulb ma sens ekonomiczny"))
+  } else {
+    print(paste("Nie można odrzucić hipotezy zerowej"))
+  }
+```
+
+Więc sprayowanie żarówek Double bulb nie ma sensu ekonomicznego.
+
+Obliczymy, na jak długo wystarczy jednego opakowania sprayu w modelowym gospodarstwie domowym przy założeniu, że w nim zwykłe używano jednocześnie 20 żarówek (według opisu zadania jednego opakowania sprayu wystarczyło na 200 żarówek).
+
+$$ ilość\text{ }zamian\text{ }żarówek = \frac{max\text{ }ilość\text{ }żarówek\text{ }dla\text{ }jednego\text{ }opakowania\text{ }sprayu}{iłość\text{ }żarówek\text{ }jednocześnie\text{ }używanych} $$
+
+```{r}
+house_bulbs_num <- 20
+replace_times <- length(bulbsdata$sprayed[bulbsdata$sprayed == "coated"]) / house_bulbs_num
+```
+
+Obliczymy prędkość używania jednego opakowania sprayu w modelowym gospodarstwie domowym:
+
+$$ prędkość\text{ }używania\text{ }opakowania\text{ }sprayu = średni\text{ }czas\text{ }użycia\text{ }sprayowanych\text{ }żarówek * iłość\text{ }zamian\text{ }żarówek $$
+
+```{r}
+spraypack_using_speed <- average_life_means$bulb_life_in_years[average_life_means$sprayed == "coated"] * replace_times
+average_life_means$product_type <- as.factor(average_life_means$product_type)
+names(spraypack_using_speed) <- levels(average_life_means$product_type)
+print(spraypack_using_speed)
+```
+
+## Wnioski z dziennikarskiego śledztwa o żarówkach "LaLuz"
+
+> Żarówki o podwójnej bańce (Double bulb) średnio działają dłużej niż żarówki o pojedynczej bańce (Regular bulb) niezależnie od używania sprayu "CoatItYourself".  
+Spray nie spełnia oczekiwania przy użyciu go na Double bulb, bo raczej nie wydłuży czas działania takiej żarówki i sprawi, że korzystanie ze sprayowanej Double bulb będzie droższe niż niesprayowanej. Jednakże sprayu można używać skutecznie tylko na Regular bulb: raczej wydłuży czas jej działania a pozwoli oszczędzić.  
+Używanie zamiast Regular bulb innych alternatyw, oprócz sprayowanej Regular bulb, nie ma sensu ekonomicznego czyli używanie Double bulb zawsze jest droższe niż Regular bulb.  
+Mimo to że korzystanie ze sprayu "CoatItYourself" ma sens wobec żarówek Regular bulb, wątpliwie, że w ogóle jest wygodne, bo zasady sprayowania są dość specyficzne, np. spray rekomenduje się używać na żarówkach co godzinę i jedynie na wychłodzonych całkowicie. A biorąc pod uwagę, że sprayu w modelowym gospodarstwie domowym starczy przykładowo na 20-30 lat (w zależności od typu żarówek), trudno przedstawić sobie, że ktoś będzie z niego korzystać tyle czasu na wskazanych zasadach. Więc chciałoby się zobaczyć wygodniejsze przepisy dla korzystania ze sprayu oraz zmianę go składników na skuteczniejsze, żeby wydłużały działanie i Double bulb. Wtedy chyba i dla Regular bulb używanie sprayu będzie jeszcze bardziej skuteczne.
+
+```{r}
+sessionInfo()
+```
